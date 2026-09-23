@@ -1,0 +1,11 @@
+node_modules
+.next
+.turbo
+*.db
+*.db-*
+.env
+.env.local
+.playwright-mcp
+*.tsbuildinfo
+.DS_Store
+next-env.d.ts

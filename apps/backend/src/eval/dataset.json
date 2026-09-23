@@ -1,0 +1,82 @@
+[
+  {
+    "repoUrl": "https://github.com/pallets/itsdangerous",
+    "questions": [
+      {
+        "question": "How does TimestampSigner enforce max_age when unsigning?",
+        "expectedSymbols": ["TimestampSigner.unsign"],
+        "expectedAnswer": "TimestampSigner.unsign extracts the timestamp, compares its age against max_age and raises SignatureExpired"
+      },
+      {
+        "question": "What does Serializer.loads call?",
+        "expectedSymbols": ["Serializer.loads", "Serializer.load_payload"],
+        "expectedAnswer": "Serializer.loads calls want_bytes, iter_unsigners, unsign and load_payload"
+      },
+      {
+        "question": "Who calls get_signature?",
+        "expectedSymbols": ["Signer.get_signature", "Signer.sign"],
+        "expectedAnswer": "Signer.sign calls get_signature to build the signature"
+      },
+      {
+        "question": "How is data base64 encoded?",
+        "expectedSymbols": ["base64_encode"],
+        "expectedAnswer": "base64_encode uses urlsafe_b64encode and strips the padding"
+      },
+      {
+        "question": "Where is URLSafeSerializer defined?",
+        "expectedSymbols": ["URLSafeSerializer"],
+        "expectedAnswer": "URLSafeSerializer is defined in url_safe.py and combines URLSafeSerializerMixin with Serializer"
+      },
+      {
+        "question": "How does the signer derive the key from the secret?",
+        "expectedSymbols": ["Signer.derive_key"],
+        "expectedAnswer": "derive_key uses the key_derivation setting such as concat or django-concat or hmac with the salt"
+      },
+      {
+        "question": "What exception is raised when a signature has expired?",
+        "expectedSymbols": ["SignatureExpired"],
+        "expectedAnswer": "SignatureExpired is raised, a subclass of BadTimeSignature"
+      }
+    ]
+  },
+  {
+    "repoUrl": "https://github.com/sindresorhus/ky",
+    "questions": [
+      {
+        "question": "How does Ky calculate the delay between retries?",
+        "expectedSymbols": ["Ky.#calculateRetryDelay"],
+        "expectedAnswer": "calculateRetryDelay uses the retry options, backoff limit and Retry-After headers"
+      },
+      {
+        "question": "What does runAfterResponseHooks do?",
+        "expectedSymbols": ["Ky.#runAfterResponseHooks"],
+        "expectedAnswer": "runs each afterResponse hook with the response and can return a new response or a retry marker"
+      },
+      {
+        "question": "How is the request timeout error represented?",
+        "expectedSymbols": ["TimeoutError"],
+        "expectedAnswer": "TimeoutError is thrown when the request times out and holds the request"
+      },
+      {
+        "question": "Where is HTTPError defined?",
+        "expectedSymbols": ["HTTPError"],
+        "expectedAnswer": "HTTPError is defined in source/errors/HTTPError.ts"
+      },
+      {
+        "question": "How does ky parse Retry-After timing headers?",
+        "expectedSymbols": ["getRetryTimingHeader"],
+        "expectedAnswer": "getRetryTimingHeader reads Retry-After style headers and parseDate converts dates"
+      },
+      {
+        "question": "What does limitResponseSize do?",
+        "expectedSymbols": ["limitResponseSize"],
+        "expectedAnswer": "limitResponseSize streams the body and throws ResponseSizeError when it exceeds the limit"
+      },
+      {
+        "question": "Who calls the delay function?",
+        "expectedSymbols": ["delay"],
+        "expectedAnswer": "delay is called from the retry logic to wait before retrying"
+      }
+    ]
+  }
+]
