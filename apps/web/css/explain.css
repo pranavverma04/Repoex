@@ -792,6 +792,9 @@ th { background: rgba(43, 33, 28, 0.9); }
 .rl-light.up .dot { background: var(--ok); box-shadow: 0 0 0 4px rgba(127, 203, 154, 0.2); }
 .rl-warn { flex-basis: 100%; order: 3; margin: 0; padding: 10px 12px; border-radius: 10px; background: var(--accent-soft); color: var(--text); }
 .rl-warn code { font-size: 12.5px; }
+.rl-watch > .rl-slot { display: contents; }
+.rl-info { flex-basis: 100%; order: 3; margin: 0; padding: 10px 12px; border-radius: 10px; background: var(--ok-soft); color: var(--text); display: flex; align-items: center; gap: 6px; }
+.rl-info svg { color: var(--ok); flex-shrink: 0; }
 .rl-copyall { display: flex; justify-content: flex-end; align-items: center; gap: 10px; }
 .rl-cli { margin-top: 0 !important; }
 .rl-cli .cmd + .cmd { margin-top: 8px; }

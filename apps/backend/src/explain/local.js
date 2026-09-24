@@ -45,8 +45,26 @@ export async function localRequest(input) {
   };
 }
 
-/** True when nothing is listening on the port (we can bind it ourselves, then let it go). */
-function isFree(port) {
+/** True when something accepts a TCP connection on host:port. */
+function answers(host, port) {
+  return new Promise((resolve) => {
+    const sock = net.connect({ host, port });
+    const done = (ok) => {
+      sock.destroy();
+      resolve(ok);
+    };
+    sock.setTimeout(400, () => done(false));
+    sock.once("connect", () => done(true));
+    sock.once("error", () => done(false));
+  });
+}
+
+/**
+ * True when nothing is listening on the port. A bind test alone isn't enough: a server bound only to
+ * 127.0.0.1 (uvicorn, Flask and Django do this by default) doesn't stop us binding the wildcard address.
+ */
+async function isFree(port) {
+  if ((await answers("127.0.0.1", port)) || (await answers("::1", port))) return false;
   return new Promise((resolve) => {
     const srv = net.createServer();
     srv.once("error", () => resolve(false));
