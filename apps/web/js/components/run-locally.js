@@ -224,7 +224,11 @@ export function runLocally(report) {
   let identity = null; // { title, match } of what answers on `port` once it's up
   const readsPortEnv = r.run.envVars.some((v) => v.name === "PORT");
   const startCmd = r.run.steps.find((st) => /start/i.test(st.title))?.commands[0] ?? null;
-  let status = "idle"; // idle | waiting | up
+  // idle: not asked yet · checking: looking right now · down: nothing answers (the user hasn't started it,
+  // or it stopped) · up: running. There is no silent "waiting" state: a blinking light made people think
+  // something was starting in the background, when nothing starts until they run the commands themselves.
+  let status = "idle";
+  let wasUp = false;
   let route = "/";
   let view = r.mock.web ? "site" : "api";
   let probeTimer = 0;
@@ -279,7 +283,8 @@ export function runLocally(report) {
       portEdited = true;
       port = Number(e.target.value) || 0;
       identity = null;
-      if (status === "up") status = "waiting";
+      wasUp = false;
+      if (status !== "idle") status = "checking";
       restartProbe();
       drawWatch();
       drawLive();
@@ -346,6 +351,24 @@ export function runLocally(report) {
     return h("p", { class: "step-note rl-warn" }, why, how);
   }
 
+  /** Nothing answers on the port: say plainly that the project doesn't start by itself, and what to do. */
+  function downNote() {
+    if (wasUp)
+      return h(
+        "p",
+        { class: "step-note rl-warn", role: "alert" },
+        `The app on localhost:${port} stopped responding. Start it again in your Terminal; it will open here again by itself.`,
+      );
+    const last = stepList().length + 1;
+    return h(
+      "p",
+      { class: "step-note rl-warn", role: "alert" },
+      h("strong", null, "The project isn't running yet. "),
+      `This page can't start it for you: run the commands in steps 1–${last} above in your own Terminal `,
+      "(or use “Copy all commands”). When the Terminal prints the app's address, it opens here automatically.",
+    );
+  }
+
   /** After the port answers: does what's there look like this repo? */
   function identityNote() {
     if (status !== "up" || !identity || identity.match === null) return null;
@@ -365,7 +388,7 @@ export function runLocally(report) {
     render(watchStepN, status === "up" ? icon("check", 15) : n);
     if (portInput.value !== String(port) && document.activeElement !== portInput) portInput.value = String(port);
     render(noteSlot, portNote());
-    render(idSlot, identityNote());
+    render(idSlot, status === "down" ? downNote() : identityNote());
     render(
       actionSlot,
       status === "idle"
@@ -374,7 +397,7 @@ export function runLocally(report) {
             {
               type: "button",
               onclick: () => {
-                status = "waiting";
+                status = "checking";
                 restartProbe();
                 drawWatch();
               },
@@ -382,12 +405,33 @@ export function runLocally(report) {
             icon("play", 12),
             " I've started it",
           )
-        : h(
-            "span",
-            { class: `rl-light ${status}`, "aria-live": "polite" },
-            h("span", { class: "dot", "aria-hidden": "true" }),
-            status === "up" ? `Running on localhost:${port}` : `Waiting for the app on localhost:${port}…`,
-          ),
+        : [
+            h(
+              "span",
+              { class: `rl-light ${status}`, "aria-live": "polite" },
+              h("span", { class: "dot", "aria-hidden": "true" }),
+              status === "up"
+                ? `Running on localhost:${port}`
+                : status === "down"
+                  ? `Nothing is running on localhost:${port}`
+                  : `Checking localhost:${port}…`,
+            ),
+            status === "down" &&
+              h(
+                "button",
+                {
+                  type: "button",
+                  class: "ghost mini",
+                  onclick: () => {
+                    status = "checking";
+                    restartProbe();
+                    drawWatch();
+                  },
+                },
+                icon("refresh", 12),
+                " Check again",
+              ),
+          ],
     );
   }
 
@@ -614,12 +658,13 @@ export function runLocally(report) {
         await fetch(`http://localhost:${port}/`, { mode: "no-cors", cache: "no-store", signal: ctl.signal });
         next = "up";
       } catch {
-        next = status === "up" ? "waiting" : status;
+        next = "down";
       } finally {
         clearTimeout(t);
       }
       if (gen !== probeGen || next === status) return;
       status = next;
+      if (status === "up") wasUp = true;
       if (status === "up") {
         identify(port, r).then((id) => {
           if (gen !== probeGen || status !== "up") return;
