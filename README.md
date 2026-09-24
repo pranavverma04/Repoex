@@ -5,19 +5,35 @@ Paste a public GitHub repository, watch it get indexed into a structural code gr
 lexical search + graph traversal** — no embeddings, no vector database. The LLM only
 writes the final answer from source snippets the retriever already selected.
 
+No TypeScript and no frontend framework: the frontend is plain **HTML + CSS + JavaScript**
+and the backend is plain **JavaScript** on Node.js. One server serves both on http://localhost:3100.
+
 ```
-apps/web        Next.js 15 frontend        http://localhost:3100
-apps/backend    Hono API + indexer         http://localhost:8787
-packages/shared Types shared by both
+apps/web/         HTML pages (index, report, ask, repo, eval), css/, js/
+  js/dom.js         h() element helper used by every component
+  js/ui.js          icons, headline/scroll animations, count-up, copy button, formatters
+  js/api.js         fetch client + live job watchers (Server-Sent Events)
+  js/layout.js      top nav + animated background
+  js/pages/*.js     one script per page
+  js/components/    report sections, repo input, chat, clone dialog, …
+apps/backend/src/ Hono API, indexer, retriever, LangGraph agent, repo explainer (JavaScript ES modules)
 ```
+
+| Page | URL | File |
+|---|---|---|
+| Repo explainer | `/` | `index.html` + `js/pages/home.js` |
+| Report | `/r/:id` | `report.html` + `js/pages/report.js` |
+| Ask the code (repo list) | `/ask` | `ask.html` + `js/pages/ask.js` |
+| Ask the code (chat) | `/ask/:id` | `repo.html` + `js/pages/repo.js` |
+| Retrieval eval | `/eval` | `eval.html` + `js/pages/eval.js` |
 
 ## Run it
 
-Needs Node 18+, pnpm 9+, and git.
+Needs Node 22+ (for `--env-file-if-exists`), pnpm 9+, and git. No build step.
 
 ```bash
 pnpm install
-pnpm dev          # starts backend + web together (Turborepo)
+pnpm dev          # node --watch; serves the API and the pages on :3100
 ```
 
 Open http://localhost:3100 and submit e.g. `https://github.com/pallets/itsdangerous`.
@@ -57,35 +73,36 @@ the port and embeds the running app (routes, address bar, reload) and sends real
 **Save a copy** (report header) git-clones the repo into a folder you name, in Desktop / Downloads /
 Documents / home or any folder under your home directory; branch and full-or-latest history are selectable,
 existing folders are never overwritten, and progress is shown live. These endpoints (`/explain/clone/*`,
-`POST /explain/reports/:id/clone`) only accept requests whose Origin is the web app (`WEB_ORIGIN`,
-default `http://localhost:3100`), since the rest of the API allows any origin.
+`POST /explain/reports/:id/clone`) only accept requests from the app's own pages: same-origin browser
+requests (`Sec-Fetch-Site: same-origin`, which other sites can't forge) or an Origin on the `WEB_ORIGIN` list
+(default `http://localhost:3100`), since the rest of the API allows any origin.
 
 It uses a blobless clone (history ~400 commits deep, only the files the analysers need are downloaded) plus a few
 GitHub API calls. The API token comes from `GITHUB_TOKEN`, else the local `gh auth token`, else anonymous.
 Reports are cached per commit in SQLite; export as Markdown or print to PDF. With an LLM key set, the overview,
 work summary, example API responses and CLI sessions are written by the model (always labelled as such).
-Code: `apps/backend/src/explain/`, `apps/web/components/explain/`.
+Code: `apps/backend/src/explain/`, `apps/web/js/components/`.
 
 The code-graph Q&A still lives at `/ask`, but it's no longer in the nav.
 
 ## How it works
 
 **Indexing** (`apps/backend/src/indexer/`)
-1. `github.ts` checks visibility and size with the GitHub API before cloning. Repos over 200 MB are rejected.
-2. `clone.ts` runs `git clone --depth 1` into a temp dir and lists files with ripgrep. The clone is deleted as soon as the files have been read.
-3. `extract.ts` is **pass 1**. tree-sitter (JS/TS/TSX, Python, Go, Rust, Java) collects functions, classes, methods, variables, and imports, plus unresolved call and import references.
-4. `resolve.ts` is **pass 2**. It resolves references into `calls` and `imports` edges once every symbol exists, so definition order across files doesn't matter.
+1. `github.js` checks visibility and size with the GitHub API before cloning. Repos over 200 MB are rejected.
+2. `clone.js` runs `git clone --depth 1` into a temp dir and lists files with ripgrep. The clone is deleted as soon as the files have been read.
+3. `extract.js` is **pass 1**. tree-sitter (JS/TS/TSX, Python, Go, Rust, Java) collects functions, classes, methods, variables, and imports, plus unresolved call and import references.
+4. `resolve.js` is **pass 2**. It resolves references into `calls` and `imports` edges once every symbol exists, so definition order across files doesn't matter.
 5. Full file text and a SHA-256 hash are stored per file. **Refresh** compares the latest commit SHA and re-parses only files whose hash changed, then rebuilds edges.
 
 Jobs live in a SQLite table (`queued → cloning → parsing → indexing → done/failed`) and
 stream to the browser over SSE (`GET /jobs/:id/stream`), with `GET /jobs/:id` as the reload snapshot.
 
-**Chat** (`apps/backend/src/agent/graph.ts`) is a LangGraph agent:
+**Chat** (`apps/backend/src/agent/graph.js`) is a LangGraph agent:
 `Plan` (terms + intent) → `Retrieve` (rank: exact name > partial > path > body mention,
 then bounded caller/callee traversal, then slice real source lines) → `Reflect` (is the context
 sufficient? if not, reformulate, up to 2 retries) → `Synthesize`.
 
-**Cache** (`cache.ts`): answers are keyed by normalized question. An answer is served only
+**Cache** (`cache.js`): answers are keyed by normalized question. An answer is served only
 if every source file's hash still matches, so it never returns a stale answer.
 
 **Eval** (`src/eval/`): hand-written question → expected-symbol → expected-answer triples for two

@@ -1,0 +1,71 @@
+/* Fonts (loaded from Google Fonts in each page's <head>) */
+:root {
+  --font-sans: "Albert Sans";
+  --font-bricolage: "Bricolage Grotesque";
+  --font-mono: "DM Mono";
+}
+
+/* ---------- Motion primitives (replace the React `motion` library) ----------
+   .enter        plays once on insert.   Tune with --delay, --y, --x, --dur.
+   .reveal       waits for .in (added by ui.js reveal() when scrolled into view).
+   .word         headline words from splitText(), staggered through --delay.
+   .swap-in      tab panel entrance; --x sets the slide direction.
+   Fill mode is `backwards`, not `both`: a finished animation must leave no transform/filter
+   behind, or the element becomes a stacking context and traps dropdowns under later siblings. */
+
+@keyframes enter-up {
+  from { opacity: 0; transform: translate3d(var(--x, 0), var(--y, 14px), 0); filter: blur(var(--blur, 0px)); }
+  to { opacity: 1; transform: none; filter: blur(0); }
+}
+@keyframes fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes pop-in {
+  from { opacity: 0; transform: scale(0.85); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes leave-up {
+  to { opacity: 0; transform: translate3d(0, -30px, 0); filter: blur(10px); }
+}
+
+.enter {
+  animation: enter-up var(--dur, 0.7s) var(--ease-out) var(--delay, 0s) backwards;
+}
+.enter.blur { --blur: 8px; }
+.enter.fade { animation-name: fade-in; }
+.enter.pop { animation-name: pop-in; animation-duration: var(--dur, 0.4s); }
+.leave { animation: leave-up 0.5s var(--ease-out) both; pointer-events: none; }
+
+.reveal { opacity: 0; transform: translate3d(0, var(--y, 22px), 0); filter: blur(6px); }
+.reveal.in {
+  opacity: 1;
+  transform: none;
+  filter: none;
+  transition:
+    opacity 0.8s var(--ease-out) var(--delay, 0s),
+    transform 0.8s var(--ease-out) var(--delay, 0s),
+    filter 0.8s var(--ease-out) var(--delay, 0s);
+}
+
+.word { animation: enter-up 0.9s var(--ease-out) var(--delay, 0s) backwards; --y: 0.35em; --blur: 10px; }
+
+.swap-in { animation: enter-up 0.38s var(--ease-out) backwards; --y: 0; --blur: 6px; }
+
+/* Sliding "pill" behind the active item in nav/tabs/toggles: CSS stands in for layoutId. */
+.nav-pill, .toggle-pill, .rp-tab-pill { animation: pop-in 0.3s var(--ease-out) backwards; }
+
+@media (prefers-reduced-motion: reduce) {
+  .enter, .word, .swap-in, .leave, .nav-pill, .toggle-pill, .rp-tab-pill { animation: none !important; }
+  .reveal, .reveal.in { opacity: 1; transform: none; filter: none; transition: none; }
+}
+
+/* Copy button: the check mark draws itself in. */
+@keyframes draw-stroke {
+  from { stroke-dashoffset: 22; }
+  to { stroke-dashoffset: 0; }
+}
+.copy .draw { stroke-dasharray: 22; animation: draw-stroke 0.35s var(--ease-out) both; }
+@media (prefers-reduced-motion: reduce) {
+  .copy .draw { animation: none; stroke-dasharray: none; }
+}

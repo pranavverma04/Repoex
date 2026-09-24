@@ -4,14 +4,13 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "tsx watch --env-file-if-exists=.env src/index.ts",
-    "start": "tsx --env-file-if-exists=.env src/index.ts",
-    "eval": "tsx --env-file-if-exists=.env src/eval/run.ts",
-    "typecheck": "tsc --noEmit"
+    "dev": "node --watch --env-file-if-exists=.env src/index.js",
+    "start": "node --env-file-if-exists=.env src/index.js",
+    "eval": "node --env-file-if-exists=.env src/eval/run.js",
+    "check": "node --check src/index.js"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.128.0",
-    "@ara/shared": "workspace:^",
     "@hono/node-server": "^2.1.1",
     "@langchain/core": "^1.2.12",
     "@langchain/langgraph": "^1.4.17",
@@ -20,11 +19,5 @@
     "hono": "^4.13.8",
     "tree-sitter-wasms": "^0.1.13",
     "web-tree-sitter": "0.22.6"
-  },
-  "devDependencies": {
-    "@types/better-sqlite3": "^9.6.0",
-    "@types/node": "^26.6.2",
-    "tsx": "^4.23.15",
-    "typescript": "^5.6.0"
   }
 }

@@ -3,12 +3,8 @@
   "private": true,
   "packageManager": "pnpm@9.15.9",
   "scripts": {
-    "dev": "turbo run dev",
-    "build": "turbo run build",
-    "typecheck": "turbo run typecheck",
+    "dev": "pnpm --filter @ara/backend dev",
+    "start": "pnpm --filter @ara/backend start",
     "eval": "pnpm --filter @ara/backend eval"
-  },
-  "devDependencies": {
-    "turbo": "^2.5.0"
   }
 }
