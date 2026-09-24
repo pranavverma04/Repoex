@@ -161,7 +161,7 @@ function webMock(web, repo, reportId) {
         ? `${liveBase}${route}`
         : current === "files"
           ? api.staticUrl(reportId, page.file)
-          : `${repo.homepage?.replace(/^https?:\/\//, "").replace(/\/$/, "") || "localhost:3000"}${route}`;
+          : `${repo.homepage?.replace(/^https?:\/\//, "").replace(/\/$/, "") || web.baseUrl || "localhost:3000"}${route}`;
 
     render(
       switchHost,

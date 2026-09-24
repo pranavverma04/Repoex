@@ -49,6 +49,7 @@ export const api = {
   cloneJob: (jobId) => call(`/explain/clone/${jobId}`),
   openTerminal: (jobId) => post(`/explain/clone/${jobId}/terminal`),
   localRequest: (body) => post("/explain/local-request", body),
+  freePort: (from) => call(`/explain/free-port?from=${from}`),
   revealClone: (jobId) => post(`/explain/clone/${jobId}/reveal`),
   /** the repo's own static files, served with scripts blocked */
   staticUrl: (id, path) => `${API_URL}/explain/static/${id}/${path.replace(/^\//, "")}`,

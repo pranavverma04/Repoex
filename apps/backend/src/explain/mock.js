@@ -309,6 +309,98 @@ function routeFromFs(rel, dropExt = true) {
   return "/" + segs.join("/");
 }
 
+/** A pages/ file is a framework page only if it is a component module, not a plain entry script. */
+function isPageModule(file, ext, src) {
+  if (/^(vue|astro|svelte|md|mdx)$/.test(ext)) return true;
+  return /\bexport\s+default\b/.test(src.files.get(file) ?? "");
+}
+
+/** Routes a server maps to HTML files: app.get("/r/:id", ... "report.html"), @app.route("/x") ... render_template("x.html"). */
+function servedHtmlRoutes(src) {
+  const routes = new Map();
+  for (const [file, raw] of src.files) {
+    if (isTestPath(file) || !/\.(js|mjs|cjs|ts|py)$/.test(file)) continue;
+    const text = maskComments(file, raw);
+    const found = [
+      ...text.matchAll(/\.(?:get|route)\(\s*["'`](\/[^"'`]*)["'`][^\n]{0,160}?["'`]([\w./-]+\.html?)["'`]/g),
+      ...text.matchAll(/@\w+\.(?:route|get)\(\s*["'](\/[^"']*)["'][\s\S]{0,240}?render_template\(\s*["']([\w./-]+\.html?)["']/g),
+    ];
+    for (const m of found) {
+      const html = m[2].replace(/^\.?\//, "");
+      if (!routes.has(html)) routes.set(html, m[1]);
+      if (!routes.has(html.split("/").pop())) routes.set(html.split("/").pop(), m[1]);
+    }
+  }
+  return routes;
+}
+
+/** True when the HTML itself shows something: its <body>, minus scripts and styles, has real text. */
+function hasStaticContent(html) {
+  const body = (html.match(/<body[^>]*>([\s\S]*)<\/body>/i)?.[1] ?? html)
+    .replace(/<script[\s\S]*?<\/script>/gi, "")
+    .replace(/<style[\s\S]*?<\/style>/gi, "")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  return body.length >= 60 || /<h[1-3]\b[^>]*>[^<]{2,}/i.test(html);
+}
+
+/** The page's own scripts (<script src>) plus the modules they import, two levels deep. */
+function scriptText(htmlFile, root, html, files) {
+  const dir = htmlFile.replace(/[^/]*$/, "");
+  const resolve = (from, spec) => {
+    if (/^(https?:)?\/\//.test(spec)) return null;
+    const base = spec.startsWith("/") ? root : from;
+    const parts = base.split("/").filter(Boolean);
+    for (const seg of spec.replace(/^\//, "").split("/")) {
+      if (seg === "..") parts.pop();
+      else if (seg !== ".") parts.push(seg);
+    }
+    const f = parts.join("/");
+    return files.has(f) ? f : null;
+  };
+  const seen = new Set();
+  let out = "";
+  const visit = (file, depth) => {
+    if (!file || seen.has(file) || depth > 2 || out.length > 300_000) return;
+    seen.add(file);
+    const text = files.get(file);
+    out += "\n" + text;
+    const here = file.replace(/[^/]*$/, "");
+    for (const m of text.matchAll(/\bimport\s+(?:[\w*{}\s,]+\s+from\s+)?["']([^"']+)["']/g)) visit(resolve(here, m[1]), depth + 1);
+  };
+  for (const m of html.matchAll(/<script\b[^>]*\bsrc=["']([^"']+)["']/gi)) visit(resolve(dir, m[1]), 0);
+  return out;
+}
+
+/** HTML written inside template literals (el.innerHTML = `<h1>…</h1>`), so the usual tag patterns can read it. */
+function templateMarkup(js) {
+  return [...js.matchAll(/`([^`]*<[a-z][^`]*)`/gi)].map((m) => m[1].replace(/\$\{[^}]*\}/g, "…")).join("\n");
+}
+
+/** UI text from hyperscript-style builders: h("h2", { class: "x" }, "Title"), createElement("button") … */
+function scriptUi(js) {
+  const props = String.raw`(?:null|undefined|\{(?:[^{}]|\{[^{}]*\})*\})`;
+  const texts = (tags, limit, min = 2) => {
+    const re = new RegExp(String.raw`\b\w+\(\s*["'](?:${tags})["']\s*,\s*${props}\s*,\s*["'\`]([^"'\`$\n]{${min},140})["'\`]`, "g");
+    const out = [];
+    for (const m of js.matchAll(re)) {
+      const t = decode(m[1]).trim();
+      if (t && !out.includes(t)) out.push(t);
+      if (out.length >= limit) break;
+    }
+    return out;
+  };
+  const placeholders = [...js.matchAll(/\bplaceholder\s*[:=]\s*["'`]([^"'`$\n]{2,80})["'`]/g)].map((m) => decode(m[1]).trim());
+  return {
+    headings: texts("h1|h2|h3", 6),
+    buttons: texts("button", 6),
+    links: texts("a", 8),
+    inputs: [...new Set(placeholders)].slice(0, 5),
+    paragraphs: texts("p", 3, 18),
+  };
+}
+
 function detectWeb(src) {
   const pages = [];
   let framework = "";
@@ -325,7 +417,8 @@ function detectWeb(src) {
       add(routeFromFs(m[1] || "", false).replace(/\/$/, "") || "/", p);
     } else if (
       (m = p.match(/^(?:.*\/)?(?:src\/)?pages\/(.+)\.(tsx|jsx|js|vue|astro|svelte|md|mdx)$/)) &&
-      !/^(api\/|_app|_document|_error)/.test(m[1])
+      !/^(api\/|_app|_document|_error)/.test(m[1]) &&
+      isPageModule(p, m[2], src)
     ) {
       framework ||= m[2] === "vue" ? "Nuxt / Vue" : m[2] === "astro" ? "Astro" : "Next.js (Pages Router)";
       add(routeFromFs(m[1]), p);
@@ -336,8 +429,9 @@ function detectWeb(src) {
   }
   // TanStack Router file routes: createFileRoute("/items")
   if (!pages.length) {
-    for (const [file, text] of src.files) {
-      const m = text.match(/createFileRoute\(\s*["'`]([^"'`]+)["'`]\s*\)/);
+    for (const [file, raw] of src.files) {
+      // comments masked: a comment that merely mentions createFileRoute("/x") is not a route
+      const m = maskComments(file, raw).match(/createFileRoute\(\s*["'`]([^"'`]+)["'`]\s*\)/);
       if (!m || isTestPath(file)) continue;
       framework ||= "TanStack Router";
       const route =
@@ -351,7 +445,8 @@ function detectWeb(src) {
   }
   // React Router / Vue Router route tables
   if (!pages.length) {
-    for (const [file, text] of src.files) {
+    for (const [file, raw] of src.files) {
+      const text = maskComments(file, raw);
       if (isTestPath(file) || !/react-router|vue-router|createBrowserRouter|<Route\b/.test(text)) continue;
       for (const m of text.matchAll(/path[=:]\s*\{?\s*["'`]([^"'`]*)["'`]/g)) {
         const route = m[1].startsWith("/") ? m[1] : "/" + m[1];
@@ -378,14 +473,40 @@ function detectWeb(src) {
       add("/", root);
     }
   }
-  // Static HTML sites
+  // HTML sites. Pages that are built by their own <script> at runtime get their text from that script.
+  let staticSite = false;
   if (!pages.length) {
-    for (const p of src.paths
-      .filter((x) => /\.html?$/.test(x) && !isTestPath(x) && x.split("/").length <= 3)
-      .slice(0, 10)) {
-      framework ||= "Static HTML";
-      const route = "/" + p.replace(/(^|\/)index\.html?$/, "").replace(/\.html?$/, (e) => e);
-      add(route === "/" ? "/" : route, p);
+    const htmlFiles = src.paths.filter(
+      (x) => /\.html?$/.test(x) && !isTestPath(x) && !/node_modules\//.test(x) && x.split("/").length <= 4 && src.files.has(x),
+    );
+    // The web root is the folder of the shallowest index.html (e.g. apps/web/), so routes read "/report.html", not "/apps/web/report.html".
+    const index = htmlFiles
+      .filter((f) => /(^|\/)index\.html?$/.test(f))
+      .sort((a, b) => a.split("/").length - b.split("/").length)[0];
+    const root = (index ?? htmlFiles[0] ?? "").replace(/[^/]*$/, "");
+    const served = servedHtmlRoutes(src);
+    let runtimePages = 0;
+    for (const p of htmlFiles.filter((f) => f.startsWith(root)).slice(0, 12)) {
+      const rel = p.slice(root.length);
+      const route = served.get(rel) ?? served.get(rel.split("/").pop()) ?? "/" + rel.replace(/(^|\/)index\.html?$/, "");
+      const html = src.files.get(p);
+      // runtime-rendered = nothing to show without JS *and* a script that builds it (an empty stub is still static)
+      if (hasStaticContent(html) || !/<script\b/i.test(html)) {
+        add(route, p);
+      } else {
+        runtimePages++;
+        const script = scriptText(p, root, html, src.files);
+        const page = pageFromFile(route, p, html + "\n" + templateMarkup(script), src);
+        const ui = scriptUi(script);
+        const limit = { headings: 6, buttons: 6, links: 8, inputs: 5, paragraphs: 3 };
+        for (const k of Object.keys(limit)) page[k] = [...new Set([...page[k], ...ui[k]])].slice(0, limit[k]);
+        pages.push(page);
+      }
+    }
+    if (pages.length) {
+      // the preview shows the repo's own files, so only call it static when most pages render without JS
+      staticSite = pages.length - runtimePages >= runtimePages;
+      framework ||= staticSite ? "Static HTML" : "HTML + JavaScript";
     }
   }
   if (!pages.length) return null;
@@ -418,7 +539,7 @@ function detectWeb(src) {
     siteTitle,
     pages: pages.slice(0, 12),
     theme: detectTheme(src),
-    staticSite: framework === "Static HTML",
+    staticSite,
   };
 }
 
@@ -1008,6 +1129,8 @@ export function buildMock(src) {
   const api = pyApi
     ? detectApi(src, detectPort(src, /\.py$/), src.deps.has("flask") && !src.deps.has("fastapi") ? 5000 : 8000)
     : detectApi(src, port, defaultPort);
+  // Where the pages are served, for the preview's address bar (the same server when it serves its own HTML).
+  if (web) web.baseUrl = `localhost:${port ?? defaultPort}`;
   const cli = detectCli(src);
   const pre = new Set(web ? ["web"] : []);
   // An app with its own API isn't also a library; a CLI package can be both (e.g. Flask).

@@ -1,6 +1,7 @@
 // Relays a request from the report page to an app the user started on localhost.
 // The browser can't read responses from another localhost port (CORS), so the backend
 // makes the call. It only ever talks to 127.0.0.1, never to this API or the web app.
+import net from "node:net";
 import { UserFacingError } from "../indexer/github.js";
 
 const BLOCKED_PORTS = new Set([Number(process.env.PORT ?? 3100)]);
@@ -42,4 +43,23 @@ export async function localRequest(input) {
     body: text,
     truncated: buf.byteLength > max,
   };
+}
+
+/** True when nothing is listening on the port (we can bind it ourselves, then let it go). */
+function isFree(port) {
+  return new Promise((resolve) => {
+    const srv = net.createServer();
+    srv.once("error", () => resolve(false));
+    srv.listen(port, () => srv.close(() => resolve(true)));
+  });
+}
+
+/** First free port at or after `start`, for "Run it locally" when the repo wants a port that's taken. */
+export async function freePort(start) {
+  const from = Number(start);
+  if (!Number.isInteger(from) || from < 1024 || from > 65000) throw new UserFacingError("Bad start port");
+  for (let port = from; port < from + 200; port++) {
+    if (!BLOCKED_PORTS.has(port) && (await isFree(port))) return { port };
+  }
+  throw new UserFacingError("No free port found nearby", 404);
 }

@@ -1,7 +1,7 @@
 // Report page (/r/:id): header with repo facts and actions, then one tab per section.
 // Tabs live in the URL hash (#stack) so back/forward and shared links open the right one.
 import { api } from "../api.js";
-import { h, pathId, render, reducedMotion } from "../dom.js";
+import { append, h, pathId, reducedMotion, render } from "../dom.js";
 import { mountLayout } from "../layout.js";
 import { ago, compact, copyButton, countUp, enter, icon, reveal, splitText, toast } from "../ui.js";
 import { openCloneDialog } from "../components/clone-dialog.js";
@@ -82,7 +82,7 @@ function overview(r) {
     ),
   );
 
-  card.append(
+  append(card, [
     current,
     h("div", { class: "audience" }, h("span", { class: "aud-label" }, "Who it's for"), h("span", null, r.overview.audience)),
     !r.ai.used &&
@@ -96,7 +96,7 @@ function overview(r) {
         r.ai.error ? ` (last attempt failed: ${r.ai.error})` : "",
         ".",
       ),
-  );
+  ]);
 
   return h(
     "section",

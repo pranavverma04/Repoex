@@ -1,9 +1,12 @@
 // "Run it locally": guided steps the user runs in their own terminal, then a port watch
 // that embeds the running app (or sends real API requests to it). Port of RunLocally.tsx.
 import { api } from "../api.js";
-import { h, render, reducedMotion } from "../dom.js";
+import { append, h, render, reducedMotion } from "../dom.js";
 import { copyButton, enter, icon } from "../ui.js";
 import { openCloneDialog } from "./clone-dialog.js";
+
+/** The port this app itself is served on: a copy of a repo can't use it, and probing it would find this app. */
+const OWN_PORT = Number(location.port) || (location.protocol === "https:" ? 443 : 80);
 
 /** The port the dev server will most likely use, from the report's own findings. */
 function guessPort(r) {
@@ -154,7 +157,14 @@ export function runLocally(report) {
     const raw = sessionStorage.getItem(key);
     if (raw) saved = JSON.parse(raw);
   } catch {}
-  let port = guessPort(r);
+  // The repo's usual port may be taken: by this app itself (e.g. when analysing this very project) or by
+  // another app on this computer. Then suggest a port that is actually free (checked by the server).
+  const wanted = guessPort(r);
+  let clash = wanted === OWN_PORT ? "own" : null; // "own" | "busy" | null
+  let port = clash === "own" ? OWN_PORT + 100 : wanted; // refined once the server says which port is free
+  let portEdited = false;
+  const readsPortEnv = r.run.envVars.some((v) => v.name === "PORT");
+  const startCmd = r.run.steps.find((st) => /start/i.test(st.title))?.commands[0] ?? null;
   let status = "idle"; // idle | waiting | up
   let route = "/";
   let view = r.mock.web ? "site" : "api";
@@ -201,6 +211,7 @@ export function runLocally(report) {
     value: port,
     "aria-label": "Port the app runs on",
     oninput: (e) => {
+      portEdited = true;
       port = Number(e.target.value) || 0;
       if (status === "up") status = "waiting";
       restartProbe();
@@ -227,6 +238,26 @@ export function runLocally(report) {
     ),
   );
 
+  /** Why the suggested port differs from the repo's, or why the typed one can't work. */
+  function portNote() {
+    if (port === OWN_PORT)
+      return h(
+        "p",
+        { class: "step-note rl-warn", role: "alert" },
+        `localhost:${OWN_PORT} is this app itself. Start the copy on another port and enter that port here.`,
+      );
+    if (!clash || port === wanted) return null;
+    const how =
+      readsPortEnv && startCmd
+        ? ["Start it with ", h("code", null, `PORT=${port} ${startCmd}`), " so it doesn't collide."]
+        : [`Start it on localhost:${port} instead (see its README or config for how to change the port).`];
+    const why =
+      clash === "own"
+        ? `This project normally runs on localhost:${wanted}, which is where this app is running now. `
+        : `Something else on this computer is already using localhost:${wanted}. If that isn't this project, `;
+    return h("p", { class: "step-note rl-warn" }, why, how);
+  }
+
   function drawWatch() {
     const n = stepList().length + 2;
     watchStep.className = `rl-step${status === "up" ? " done" : ""}`;
@@ -234,6 +265,7 @@ export function runLocally(report) {
     render(
       watchHost,
       h("label", { class: "rl-port" }, h("span", null, "localhost:"), portInput),
+      portNote(),
       status === "idle"
         ? h(
             "button",
@@ -463,7 +495,8 @@ export function runLocally(report) {
   function restartProbe() {
     clearInterval(probeTimer);
     const gen = ++probeGen;
-    if (status === "idle" || !isServer) return;
+    // never probe our own port: it always answers, and the "running app" would be this one
+    if (status === "idle" || !isServer || port === OWN_PORT) return;
     const probe = async () => {
       if (!root.isConnected && root.dataset.mounted) return clearInterval(probeTimer);
       if (root.isConnected) root.dataset.mounted = "1";
@@ -491,7 +524,8 @@ export function runLocally(report) {
     drawSteps();
   }
 
-  root.append(
+  // append() from dom.js skips null/false; the native root.append() would print them as text
+  append(root, [
     h(
       "p",
       { class: "rl-intro" },
@@ -527,7 +561,25 @@ export function runLocally(report) {
         r.mock.library.usage && h("pre", { class: "cmd" }, h("code", null, r.mock.library.usage)),
       ),
     liveHost,
-  );
+  ]);
   draw();
+  if (isServer) {
+    api
+      .freePort(clash === "own" ? OWN_PORT + 100 : wanted)
+      .then(({ port: free }) => {
+        if (free === wanted || portEdited) return;
+        clash ??= "busy";
+        port = free;
+        portInput.value = String(free);
+        drawWatch();
+      })
+      .catch(() => {
+        if (clash === "own" && !portEdited) {
+          port = OWN_PORT + 100;
+          portInput.value = String(port);
+          drawWatch();
+        }
+      });
+  }
   return root;
 }

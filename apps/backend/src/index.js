@@ -15,7 +15,7 @@ import { getExplainJob, getReport, previewRepo, recentReports, startExplain } fr
 import { reportToMarkdown } from "./explain/markdown.js";
 import { findLiveSites, staticFile, userRepos } from "./explain/site.js";
 import { checkTarget, cloneLocations, getCloneJob, openTerminal, revealClone, startClone } from "./explain/clone.js";
-import { localRequest } from "./explain/local.js";
+import { freePort, localRequest } from "./explain/local.js";
 import { UserFacingError } from "./indexer/github.js";
 import { getJob } from "./jobs/store.js";
 import { startWorker } from "./jobs/worker.js";
@@ -176,6 +176,12 @@ app.post("/explain/clone/:jobId/terminal", async (c) => {
   return c.json({ ok: true });
 });
 
+// A free port for a copy the user is about to start (their project's usual port may be taken)
+app.get("/explain/free-port", async (c) => {
+  assertLocalApp(c);
+  return c.json(await freePort(c.req.query("from")));
+});
+
 // Real requests to an app the user started themselves on localhost
 app.post("/explain/local-request", async (c) => {
   assertLocalApp(c);
@@ -248,13 +254,23 @@ app.get("/eval/latest", (c) => c.json(latestEvalRun()));
 
 // --- Web pages (plain HTML/CSS/JS in apps/web) ----------------------------
 const webDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../web");
-const page = (file) => (c) => c.html(fs.readFileSync(path.join(webDir, file), "utf8"));
+// `no-cache` = always revalidate (a cheap 304 when unchanged), so an edited page or script is never served stale.
+const page = (file) => (c) => {
+  c.header("Cache-Control", "no-cache");
+  return c.html(fs.readFileSync(path.join(webDir, file), "utf8"));
+};
 app.get("/", page("index.html"));
 app.get("/r/:id", page("report.html"));
 app.get("/ask", page("ask.html"));
 app.get("/ask/:id", page("repo.html"));
 app.get("/eval", page("eval.html"));
-app.use("/*", serveStatic({ root: path.relative(process.cwd(), webDir) || "." }));
+app.use(
+  "/*",
+  serveStatic({
+    root: path.relative(process.cwd(), webDir) || ".",
+    onFound: (_path, c) => c.header("Cache-Control", "no-cache"),
+  }),
+);
 
 startWorker();
 serve({ fetch: app.fetch, port: config.port }, (info) => {
