@@ -205,6 +205,69 @@ function apiTry(endpoints, getPort) {
   return root;
 }
 
+let dlgUid = 0;
+
+/**
+ * Popup shown when the user says the app is started but nothing answers on the port.
+ * OK (or Escape / Enter / a click outside) closes it and puts focus back where the user was.
+ */
+function notRunningDialog({ port, lastStep, returnFocus, onClose }) {
+  const n = ++dlgUid;
+  const ok = h("button", { type: "button", class: "dlg-ok" }, "OK");
+  const backdrop = h(
+    "div",
+    { class: "dlg-backdrop enter fade", style: "--dur: .2s" },
+    h(
+      "div",
+      { class: "dlg dlg-sm", role: "alertdialog", "aria-modal": "true", "aria-labelledby": `rl-nr-t${n}`, "aria-describedby": `rl-nr-d${n}` },
+      h(
+        "div",
+        { class: "dlg-head" },
+        h("span", { class: "dlg-icon" }, icon("terminal", 20)),
+        h(
+          "div",
+          null,
+          h("h2", { id: `rl-nr-t${n}` }, "The project isn't running yet"),
+          h("p", { class: "muted" }, `Nothing answered on localhost:${port}.`),
+        ),
+      ),
+      h(
+        "div",
+        { class: "dlg-body" },
+        h("p", { id: `rl-nr-d${n}`, class: "dlg-text" }, "This page can't start the project for you. To see it here:"),
+        h(
+          "ol",
+          { class: "dlg-steps" },
+          h("li", null, `Run the commands in steps 1–${lastStep} in your own Terminal (“Copy all commands” copies them in one go).`),
+          h("li", null, "Wait until the Terminal prints the app's address, like ", h("code", null, `http://localhost:${port}`), "."),
+          h("li", null, "It opens here by itself. You don't need to press anything again."),
+        ),
+        h("div", { class: "dlg-actions" }, ok),
+      ),
+    ),
+  );
+  const onKey = (e) => {
+    if (e.key === "Escape" || e.key === "Enter") {
+      e.preventDefault();
+      close();
+    } else if (e.key === "Tab") {
+      e.preventDefault(); // OK is the only control: keep focus inside the popup
+      ok.focus();
+    }
+  };
+  function close() {
+    document.removeEventListener("keydown", onKey, true);
+    backdrop.remove();
+    onClose?.();
+    returnFocus()?.focus({ preventScroll: true });
+  }
+  ok.addEventListener("click", close);
+  backdrop.addEventListener("click", (e) => e.target === backdrop && close());
+  document.addEventListener("keydown", onKey, true);
+  document.body.append(backdrop);
+  ok.focus({ preventScroll: true });
+}
+
 export function runLocally(report) {
   const r = report;
   const key = `ara:clone:${r.reportId}`;
@@ -229,6 +292,8 @@ export function runLocally(report) {
   // something was starting in the background, when nothing starts until they run the commands themselves.
   let status = "idle";
   let wasUp = false;
+  let askedNow = false; // the current check was started by a button press: report its result in a popup
+  let popupOpen = false;
   let route = "/";
   let view = r.mock.web ? "site" : "api";
   let probeTimer = 0;
@@ -351,24 +416,6 @@ export function runLocally(report) {
     return h("p", { class: "step-note rl-warn" }, why, how);
   }
 
-  /** Nothing answers on the port: say plainly that the project doesn't start by itself, and what to do. */
-  function downNote() {
-    if (wasUp)
-      return h(
-        "p",
-        { class: "step-note rl-warn", role: "alert" },
-        `The app on localhost:${port} stopped responding. Start it again in your Terminal; it will open here again by itself.`,
-      );
-    const last = stepList().length + 1;
-    return h(
-      "p",
-      { class: "step-note rl-warn", role: "alert" },
-      h("strong", null, "The project isn't running yet. "),
-      `This page can't start it for you: run the commands in steps 1–${last} above in your own Terminal `,
-      "(or use “Copy all commands”). When the Terminal prints the app's address, it opens here automatically.",
-    );
-  }
-
   /** After the port answers: does what's there look like this repo? */
   function identityNote() {
     if (status !== "up" || !identity || identity.match === null) return null;
@@ -388,7 +435,7 @@ export function runLocally(report) {
     render(watchStepN, status === "up" ? icon("check", 15) : n);
     if (portInput.value !== String(port) && document.activeElement !== portInput) portInput.value = String(port);
     render(noteSlot, portNote());
-    render(idSlot, status === "down" ? downNote() : identityNote());
+    render(idSlot, identityNote());
     render(
       actionSlot,
       status === "idle"
@@ -398,6 +445,7 @@ export function runLocally(report) {
               type: "button",
               onclick: () => {
                 status = "checking";
+                askedNow = true;
                 restartProbe();
                 drawWatch();
               },
@@ -413,7 +461,9 @@ export function runLocally(report) {
               status === "up"
                 ? `Running on localhost:${port}`
                 : status === "down"
-                  ? `Nothing is running on localhost:${port}`
+                  ? wasUp
+                    ? `Stopped: nothing on localhost:${port}`
+                    : `Nothing is running on localhost:${port}`
                   : `Checking localhost:${port}…`,
             ),
             status === "down" &&
@@ -424,6 +474,7 @@ export function runLocally(report) {
                   class: "ghost mini",
                   onclick: () => {
                     status = "checking";
+                    askedNow = true;
                     restartProbe();
                     drawWatch();
                   },
@@ -662,7 +713,19 @@ export function runLocally(report) {
       } finally {
         clearTimeout(t);
       }
-      if (gen !== probeGen || next === status) return;
+      if (gen !== probeGen) return;
+      const asked = askedNow;
+      askedNow = false;
+      if (asked && next === "down" && !popupOpen) {
+        popupOpen = true;
+        notRunningDialog({
+          port,
+          lastStep: stepList().length + 1,
+          returnFocus: () => actionSlot.querySelector("button") ?? portInput,
+          onClose: () => (popupOpen = false),
+        });
+      }
+      if (next === status) return;
       status = next;
       if (status === "up") wasUp = true;
       if (status === "up") {

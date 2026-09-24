@@ -723,6 +723,11 @@ th { background: rgba(43, 33, 28, 0.9); }
 
 /* save-a-copy dialog */
 .dlg-backdrop { position: fixed; inset: 0; z-index: 80; display: grid; place-items: center; padding: 16px; background: rgba(10, 7, 6, 0.62); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); }
+.dlg-sm { width: min(480px, 100%); }
+.dlg-text { margin: 0; color: var(--text); }
+.dlg-steps { margin: 0; padding-left: 22px; display: grid; gap: 8px; color: var(--muted); line-height: 1.5; }
+.dlg-steps li::marker { color: var(--accent); font-weight: 600; }
+.dlg-ok { min-width: 110px; }
 .dlg { width: min(560px, 100%); max-height: calc(100vh - 32px); overflow-y: auto; border-radius: 24px; background: linear-gradient(180deg, #2a201b, #211914); border: 1px solid var(--border-strong); box-shadow: 0 50px 120px -30px rgba(0, 0, 0, 0.9); }
 .dlg-head { position: relative; display: flex; gap: 14px; align-items: flex-start; padding: 22px 22px 6px; }
 .dlg-head h2 { margin: 0 0 2px; font-size: 22px; }
